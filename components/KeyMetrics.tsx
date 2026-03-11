@@ -38,7 +38,7 @@ function SkeletonLarge() {
 
 export default function KeyMetrics({ prediction, locationName, isLoading, error, onRetry }: MetricsProps) {
     const utilizationPct = prediction
-        ? Math.round((prediction.predictedDemand / prediction.currentCapacity) * 100)
+        ? Math.round((prediction.predictedPeakMW / prediction.currentCapacity) * 100)
         : null;
 
     const riskColor: Record<string, string> = {
@@ -191,9 +191,17 @@ export default function KeyMetrics({ prediction, locationName, isLoading, error,
                             </div>
                             <span className="text-xs font-semibold text-text-secondary">Peak Demand</span>
                         </div>
-                        <span className="text-2xl md:text-3xl font-bold text-navy tracking-tight font-[family-name:var(--font-poppins)]">
-                            {prediction ? prediction.peakHour : "—"}
-                        </span>
+                        <div className="flex items-baseline gap-1.5">
+                            <span className="text-2xl md:text-3xl font-bold text-navy tracking-tight font-[family-name:var(--font-poppins)]">
+                                {prediction ? prediction.predictedPeakMW.toLocaleString() : "—"}
+                            </span>
+                            <span className="text-sm text-text-muted">MW</span>
+                        </div>
+                        {prediction && (
+                            <p className="text-[10px] text-text-muted mt-1">
+                                Occurs at <strong className="text-navy">{prediction.peakHour}</strong>
+                            </p>
+                        )}
                     </motion.div>
                 )}
 
@@ -208,7 +216,7 @@ export default function KeyMetrics({ prediction, locationName, isLoading, error,
                         transition={{ duration: 0.4, delay: 0.2 }}
                         className="bento-card col-span-2 row-span-1 p-5 flex flex-col justify-between bg-gradient-to-br from-india-green-bg/50 to-white"
                     >
-                        <span className="text-xs font-semibold text-text-secondary">Capacity Used</span>
+                        <span className="text-xs font-semibold text-text-secondary">Peak Load Factor</span>
                         {utilizationPct !== null ? (
                             <div className="flex items-center gap-3">
                                 <span className="text-2xl md:text-3xl font-bold text-india-green tracking-tight font-[family-name:var(--font-poppins)]">

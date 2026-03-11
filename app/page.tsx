@@ -65,6 +65,7 @@ function derivePeakHour(hourly: ApiPrediction["hourlyDemand"]): string {
 /** Build a full ApiPrediction from the raw ML output. */
 function buildPrediction(
   avgMW: number,
+  peakMW: number,
   rawValue: number,
   rawUnit: string,
   capacityMW: number,
@@ -72,14 +73,18 @@ function buildPrediction(
   locationName: string,
   demandChangePct?: number
 ): ApiPrediction {
-  const utilization = avgMW / capacityMW;
+  const hourly = buildHourlyCurve(avgMW, capacityMW, confidencePct);
+  const peakHour = derivePeakHour(hourly);
+  
+  // For cities (where peakMW is undefined), derive peak from the curve. 
+  // For states, use the specific ML peak prediction provided.
+  const actualPeakMW = peakMW ?? Math.max(...hourly.map(h => h.predicted));
+
+  const utilization = actualPeakMW / capacityMW;
   let riskLevel: ApiPrediction["riskLevel"] = "Low";
   if (utilization > 0.95) riskLevel = "Critical";
   else if (utilization > 0.85) riskLevel = "High";
   else if (utilization > 0.70) riskLevel = "Medium";
-
-  const hourly = buildHourlyCurve(avgMW, capacityMW, confidencePct);
-  const peakHour = derivePeakHour(hourly);
 
   const changeLabel =
     demandChangePct !== undefined
@@ -89,9 +94,9 @@ function buildPrediction(
       : "";
 
   const insights = [
-    `Predicted average demand for ${locationName}: ${avgMW.toLocaleString()} MW.`,
-    `Peak demand expected around ${peakHour}.`,
-    changeLabel ? `Demand change: ${changeLabel}.` : `Grid utilization at ${Math.round(utilization * 100)}% of capacity.`,
+    `Peak demand of ${peakMW.toLocaleString()} MW expected around ${peakHour}.`,
+    `Average forecasted demand: ${avgMW.toLocaleString()} MW.`,
+    changeLabel ? `Demand change: ${changeLabel}.` : `Grid utilization reaching ${Math.round(utilization * 100)}% of capacity.`,
     riskLevel === "Critical" || riskLevel === "High"
       ? "⚠️ High grid stress expected — load management protocols advised."
       : riskLevel === "Medium"
@@ -106,6 +111,7 @@ function buildPrediction(
     rawUnit,
     currentCapacity: capacityMW,
     peakHour,
+    predictedPeakMW: actualPeakMW,
     riskLevel,
     hourlyDemand: hourly,
     insights,
@@ -114,8 +120,9 @@ function buildPrediction(
   };
 }
 
-/** Approximate state-level capacity (MW) — static grid data, not ML output. */
-const STATE_CAPACITY: Record<string, number> = {
+/** Approximate location capacity (MW) — static grid data. Covers both States and Cities. */
+const LOCATION_CAPACITY: Record<string, number> = {
+  // States
   "Delhi": 9000, "ER Odisha": 7000, "Goa": 1000, "Gujarat": 28000,
   "Haryana": 14000, "HP": 3000, "J&K(UT) & Ladakh(UT)": 3500,
   "Jharkhand": 5500, "Kerala": 6500, "Manipur": 700, "Mizoram": 500,
@@ -127,9 +134,15 @@ const STATE_CAPACITY: Record<string, number> = {
   "Assam": 2500, "Bihar": 7000, "Chandigarh": 500, "Chhattisgarh": 9000,
   "DD": 300, "DNH": 400, "DVC": 7000, "NER Tripura": 800, "NER Manipur": 700,
   "NER Mizoram": 500, "NER Nagaland": 600,
+  // Cities
+  "Mumbai": 6500, "Bengaluru": 5000, "Chennai": 4500, "Hyderabad": 4500,
+  "Kolkata": 3500, "Ahmedabad": 3000, "Pune": 3000, "Jaipur": 2500,
+  "Lucknow": 2500, "New Delhi": 4000, "Indore": 2000, "Kochi": 1500,
+  "Visakhapatnam": 1800, "Patna": 1800, "Ranchi": 1200, "Bhubaneswar": 1200,
+  "Guwahati": 1000, "Dehradun": 800, "Shimla": 400, "Srinagar": 800,
 };
 
-const DEFAULT_CAPACITY = 10000;
+const DEFAULT_CAPACITY = 1000; // Lower default for unknown cities
 
 export default function Home() {
   const [locations, setLocations] = useState<LocationMarker[]>([]);
@@ -186,6 +199,7 @@ export default function Home() {
 
     try {
       let avgMW: number;
+      let peakMW: number;
       let rawValue: number;
       let rawUnit: string;
       let confidencePct = 85;
@@ -203,9 +217,12 @@ export default function Home() {
         }
 
         const data = await cityRes.json();
-        rawValue = data.predicted_demand_mwh;
-        rawUnit = "MWh";
-        avgMW = Math.round(rawValue / 24);
+        const predictedMWh = data.predicted_demand_mwh;
+        rawValue = Number((predictedMWh / 1000).toFixed(2));
+        rawUnit = "MU";
+        avgMW = Math.round(predictedMWh / 24);
+        // Peak will be derived from curve in buildPrediction
+        peakMW = undefined as any; 
         confidencePct = 90;
       } else {
         const stateRes = await fetch(`${API_BASE}/predict/state`, {
@@ -222,17 +239,18 @@ export default function Home() {
         const data = await stateRes.json();
         rawValue = data.predicted_demand_mu;
         rawUnit = "MU";
+        peakMW = Math.round(data.predicted_max_demand_mw);
         // Convert Daily MU (Million Units) to Average MWh for the chart
-        // 1 MU = 1,000 MWh
         avgMW = Math.round((rawValue * 1000) / 24);
         confidencePct = 80;
       }
 
       const capacity =
-        STATE_CAPACITY[selectedMarker.name] ?? DEFAULT_CAPACITY;
+        LOCATION_CAPACITY[selectedMarker.name] ?? DEFAULT_CAPACITY;
 
       const built = buildPrediction(
         avgMW,
+        peakMW,
         rawValue,
         rawUnit,
         capacity,
@@ -369,7 +387,7 @@ export default function Home() {
               isLoading={isLoading}
               utilizationPct={
                 prediction
-                  ? Math.round((prediction.predictedDemand / prediction.currentCapacity) * 100)
+                  ? Math.round((prediction.predictedPeakMW / prediction.currentCapacity) * 100)
                   : null
               }
             />

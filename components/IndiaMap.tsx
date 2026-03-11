@@ -51,10 +51,36 @@ interface IndiaMapProps {
 /** Try to match GeoJSON feature name to one of our state markers by fuzzy comparison. */
 function matchGeoState(geoName: string, markers: LocationMarker[]): LocationMarker | undefined {
     const normalize = (s: string) => s.toLowerCase().replace(/[^a-z]/g, "").replace("and", "");
+    
+    // Manual mapping for common abbreviations in the dataset
+    const nameMap: Record<string, string> = {
+        "hp": "himachalpradesh",
+        "mp": "madhyapradesh",
+        "nrup": "uttarpradesh",
+        "wrmaharashtra": "maharashtra",
+        "srkarnataka": "karnataka",
+        "erodisha": "odisha",
+        "nctofdelhi": "delhi",
+        "jkutladakhut": "jammukashmirladakh",
+        "nermeghalaya": "meghalaya",
+        "dnh": "dadaranagarhavelli",
+        "dd": "damandiu"
+    };
+
     const geoNorm = normalize(geoName);
-    return markers.find((m) => m.type === "state" && (
-        normalize(m.name) === geoNorm || geoNorm.includes(normalize(m.name)) || normalize(m.name).includes(geoNorm)
-    ));
+    
+    return markers.find((m) => {
+        if (m.type !== "state") return false;
+        const mNorm = normalize(m.name);
+        const mappedName = nameMap[mNorm] || mNorm;
+        
+        return (
+            mappedName === geoNorm || 
+            geoNorm.includes(mappedName) || 
+            mappedName.includes(geoNorm) ||
+            geoNorm === mNorm
+        );
+    });
 }
 
 export default function IndiaMap({ locations, onMarkerSelect, selectedMarker, onBack }: IndiaMapProps) {

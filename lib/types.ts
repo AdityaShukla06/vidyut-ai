@@ -34,6 +34,7 @@ export interface ApiPrediction {
   rawUnit: string;            // Unit for the raw value
   currentCapacity: number;    // grid capacity in MW
   peakHour: string;           // e.g. "7 PM"
+  predictedPeakMW: number;    // Peak MW for the day
   riskLevel: RiskLevel;
   hourlyDemand: HourlyPoint[];
   insights: string[];
